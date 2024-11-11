@@ -1,0 +1,8 @@
+<div class="toolbar">
+  <button *ngFor="let operator of operators" (click)="addOperator(operator)">
+    {{ operator }}
+  </button>
+  <button *ngFor="let func of functions" (click)="addFunction(func)">
+    {{ func }}
+  </button>
+</div>

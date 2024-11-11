@@ -1,0 +1,26 @@
+<div class="expression-editor-container">
+  <app-expression-toolbar
+    (insertText)="insertTextAtCursor($event)"
+  ></app-expression-toolbar>
+
+  <div #codeEditor class="editor-container"></div>
+
+  <!-- Simulate Feature Section -->
+  <div class="simulate-section">
+    <h3>Simulate Expression</h3>
+    <div class="simulate-inputs">
+      <label *ngFor="let variable of variables" [attr.for]="variable">
+        {{ variable }}:
+        <input
+          type="number"
+          [id]="variable"
+          [(ngModel)]="simulationValues[variable]"
+        />
+      </label>
+    </div>
+    <button (click)="simulateExpression()">Simulate</button>
+    <div class="simulate-result">
+      <strong>Result:</strong> {{ simulationResult }}
+    </div>
+  </div>
+</div>
