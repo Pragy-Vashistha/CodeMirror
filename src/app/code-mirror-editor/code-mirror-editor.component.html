@@ -4,6 +4,9 @@
   ></app-expression-toolbar>
 
   <div #codeEditor class="editor-container"></div>
+  <div *ngIf="syntaxErrorMessage" class="error-display">
+    <p><strong>Error:</strong> {{ syntaxErrorMessage }}</p>
+  </div>
 
   <!-- Simulate Feature Section -->
   <div class="simulate-section">

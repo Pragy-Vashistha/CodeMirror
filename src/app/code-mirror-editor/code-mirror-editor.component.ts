@@ -22,6 +22,8 @@ import { defaultKeymap } from '@codemirror/commands';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { ExpressionToolbarComponent } from '../expression-toolbar/expression-toolbar.component';
+import { linter, Diagnostic } from '@codemirror/lint';
+import { bracketMatching } from '@codemirror/language';
 
 @Component({
   selector: 'app-code-mirror-editor',
@@ -40,14 +42,14 @@ export class CodeMirrorEditorComponent implements AfterViewInit {
   codeEditor!: ElementRef<HTMLDivElement>;
   private editorInstance!: EditorView;
 
-  variables: string[] = []; // Store variable names
-  simulationValues: { [key: string]: number } = {}; // Store input values
-  simulationResult: number | null = null; // Result
+  variables: string[] = [];
+  simulationValues: { [key: string]: number } = {};
+  simulationResult: number | null = null;
+  syntaxErrorMessage: string | null = null;
 
   constructor(@Inject(PLATFORM_ID) private platformId: Object) {}
 
   ngAfterViewInit() {
-    // Check if we are in the browser before initializing CodeMirror
     if (isPlatformBrowser(this.platformId)) {
       const state = EditorState.create({
         doc: '',
@@ -60,6 +62,8 @@ export class CodeMirrorEditorComponent implements AfterViewInit {
           EditorView.lineWrapping,
           javascript(),
           keymap.of(defaultKeymap),
+          bracketMatching(),
+          linter((view) => this.syntaxValidator(view.state)), // Syntax validation
         ],
       });
 
@@ -69,6 +73,28 @@ export class CodeMirrorEditorComponent implements AfterViewInit {
       });
     }
   }
+
+  syntaxValidator = (state: EditorState): Diagnostic[] => {
+    const diagnostics: Diagnostic[] = [];
+    const code = state.doc.toString();
+
+    try {
+      // Attempt to parse as a function to detect syntax errors
+      new Function(code);
+      this.syntaxErrorMessage = null;
+    } catch (error: any) {
+      const message = error.message;
+      const pos = code.length;
+      diagnostics.push({
+        from: pos,
+        to: pos,
+        severity: 'error',
+        message: message,
+      });
+      this.syntaxErrorMessage = `Syntax Error: ${message}`;
+    }
+    return diagnostics;
+  };
 
   getEditorContent(): string {
     return this.editorInstance ? this.editorInstance.state.doc.toString() : '';
@@ -87,15 +113,10 @@ export class CodeMirrorEditorComponent implements AfterViewInit {
   }
 
   simulateExpression() {
-    // Get the current expression from the editor
     const expression = this.getEditorContent();
-
-    // Replace variable names in the expression with actual values from `simulationValues`
     let evaluatedExpression = expression;
     for (const variable in this.simulationValues) {
       const value = this.simulationValues[variable];
-      // Replace all occurrences of the variable with its value in the expression
-      // Note: Use regex to replace only full variable names, avoiding substring replacement
       const regex = new RegExp(`\\b${variable}\\b`, 'g');
       evaluatedExpression = evaluatedExpression.replace(
         regex,
@@ -104,14 +125,14 @@ export class CodeMirrorEditorComponent implements AfterViewInit {
     }
 
     try {
-      // Use `Function` to evaluate the expression
-      // Wrap the evaluatedExpression to ensure it is a mathematical expression
       this.simulationResult = new Function(
         `return (${evaluatedExpression});`
       )();
-    } catch (error) {
+      this.syntaxErrorMessage = null; // Clear error message on successful evaluation
+    } catch (error: any) {
       console.error('Error evaluating expression:', error);
-      this.simulationResult = null; // Reset result on error
+      this.syntaxErrorMessage = `Evaluation Error: ${error.message}`; // Update error message on evaluation error
+      this.simulationResult = null;
     }
   }
 }
