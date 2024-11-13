@@ -5,9 +5,10 @@ import {
   ElementRef,
   Inject,
   PLATFORM_ID,
+  HostListener,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { EditorState } from '@codemirror/state';
+import { EditorState, EditorSelection } from '@codemirror/state';
 import { javascript } from '@codemirror/lang-javascript';
 import {
   lineNumbers,
@@ -17,6 +18,7 @@ import {
   dropCursor,
   EditorView,
   keymap,
+  KeyBinding,
 } from '@codemirror/view';
 import { defaultKeymap } from '@codemirror/commands';
 import { CommonModule } from '@angular/common';
@@ -24,6 +26,70 @@ import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { ExpressionToolbarComponent } from '../expression-toolbar/expression-toolbar.component';
 import { linter, Diagnostic } from '@codemirror/lint';
 import { bracketMatching } from '@codemirror/language';
+
+const customKeymap: KeyBinding[] = [
+  {
+    key: 'Mod-c',
+    run: (view: EditorView) => {
+      const selectedText = view.state.sliceDoc(
+        view.state.selection.main.from,
+        view.state.selection.main.to
+      );
+      navigator.clipboard.writeText(selectedText);
+      return true;
+    },
+  },
+  {
+    key: 'Mod-x',
+    run: (view: EditorView) => {
+      const { state } = view;
+      const selectedText = state.sliceDoc(
+        state.selection.main.from,
+        state.selection.main.to
+      );
+      navigator.clipboard.writeText(selectedText);
+      const transaction = state.update({
+        changes: {
+          from: state.selection.main.from,
+          to: state.selection.main.to,
+          insert: '',
+        },
+      });
+      view.dispatch(transaction);
+      return true;
+    },
+  },
+  {
+    key: 'Mod-v',
+    run: (view: EditorView) => {
+      navigator.clipboard.readText().then((clipboardText) => {
+        const transaction = view.state.update({
+          changes: {
+            from: view.state.selection.main.from,
+            to: view.state.selection.main.to,
+            insert: clipboardText,
+          },
+        });
+        view.dispatch(transaction);
+      });
+      return true;
+    },
+  },
+  {
+    key: 'Shift-ArrowRight',
+    run: (view: EditorView) => {
+      const { state } = view;
+      const selection = state.selection.main.extend(
+        state.selection.main.to + 1
+      );
+      const transaction = state.update({
+        selection: EditorSelection.single(selection.from, selection.to),
+      });
+      view.dispatch(transaction);
+      return true;
+    },
+  },
+];
 
 @Component({
   selector: 'app-code-mirror-editor',
@@ -40,7 +106,11 @@ import { bracketMatching } from '@codemirror/language';
 export class CodeMirrorEditorComponent implements AfterViewInit {
   @ViewChild('codeEditor', { static: true })
   codeEditor!: ElementRef<HTMLDivElement>;
+  @ViewChild('contextMenu')
+  contextMenu!: ElementRef<HTMLDivElement>;
+
   private editorInstance!: EditorView;
+  private currentContextEvent: MouseEvent | null = null;
 
   variables: string[] = [];
   simulationValues: { [key: string]: number } = {};
@@ -61,9 +131,38 @@ export class CodeMirrorEditorComponent implements AfterViewInit {
           dropCursor(),
           EditorView.lineWrapping,
           javascript(),
-          keymap.of(defaultKeymap),
+          keymap.of([...defaultKeymap, ...customKeymap]),
           bracketMatching(),
-          linter((view) => this.syntaxValidator(view.state)), // Syntax validation
+          linter((view) => this.syntaxValidator(view.state)),
+          EditorView.domEventHandlers({
+            dragstart: (event, view) => {
+              const selection = view.state.selection.main;
+              if (!selection.empty) {
+                event.dataTransfer?.setData(
+                  'text/plain',
+                  view.state.sliceDoc(selection.from, selection.to)
+                );
+                view.dom.draggable = true;
+              }
+            },
+            drop: (event, view) => {
+              event.preventDefault();
+              const dropText = event.dataTransfer?.getData('text/plain');
+              if (dropText) {
+                const { state } = view;
+                const pos = view.posAtCoords({
+                  x: event.clientX,
+                  y: event.clientY,
+                });
+                if (pos != null) {
+                  const transaction = state.update({
+                    changes: { from: pos, to: pos, insert: dropText },
+                  });
+                  view.dispatch(transaction);
+                }
+              }
+            },
+          }),
         ],
       });
 
@@ -71,7 +170,90 @@ export class CodeMirrorEditorComponent implements AfterViewInit {
         state,
         parent: this.codeEditor.nativeElement,
       });
+
+      this.editorInstance.dom.addEventListener(
+        'contextmenu',
+        this.onContextMenu.bind(this)
+      );
     }
+  }
+
+  @HostListener('document:click')
+  closeContextMenu() {
+    if (this.contextMenu?.nativeElement) {
+      this.contextMenu.nativeElement.style.display = 'none';
+    }
+  }
+
+  onContextMenu(event: MouseEvent) {
+    event.preventDefault();
+    this.currentContextEvent = event;
+
+    if (this.contextMenu?.nativeElement) {
+      const contextMenu = this.contextMenu.nativeElement;
+      contextMenu.style.display = 'block';
+      contextMenu.style.left = `${event.pageX}px`;
+      contextMenu.style.top = `${event.pageY}px`;
+    }
+  }
+
+  cutText() {
+    if (this.editorInstance) {
+      const { state } = this.editorInstance;
+      const selection = state.selection.main;
+      if (!selection.empty) {
+        const selectedText = state.sliceDoc(selection.from, selection.to);
+        navigator.clipboard.writeText(selectedText);
+        const transaction = state.update({
+          changes: { from: selection.from, to: selection.to, insert: '' },
+        });
+        this.editorInstance.dispatch(transaction);
+      }
+    }
+    this.closeContextMenu();
+  }
+
+  copyText() {
+    if (this.editorInstance) {
+      const { state } = this.editorInstance;
+      const selection = state.selection.main;
+      if (!selection.empty) {
+        const selectedText = state.sliceDoc(selection.from, selection.to);
+        navigator.clipboard.writeText(selectedText);
+      }
+    }
+    this.closeContextMenu();
+  }
+
+  async pasteText() {
+    if (this.editorInstance) {
+      const clipboardText = await navigator.clipboard.readText();
+      const { state } = this.editorInstance;
+      const selection = state.selection.main;
+      const transaction = state.update({
+        changes: {
+          from: selection.from,
+          to: selection.to,
+          insert: clipboardText,
+        },
+      });
+      this.editorInstance.dispatch(transaction);
+    }
+    this.closeContextMenu();
+  }
+
+  deleteText() {
+    if (this.editorInstance) {
+      const { state } = this.editorInstance;
+      const selection = state.selection.main;
+      if (!selection.empty) {
+        const transaction = state.update({
+          changes: { from: selection.from, to: selection.to, insert: '' },
+        });
+        this.editorInstance.dispatch(transaction);
+      }
+    }
+    this.closeContextMenu();
   }
 
   syntaxValidator = (state: EditorState): Diagnostic[] => {
@@ -79,7 +261,6 @@ export class CodeMirrorEditorComponent implements AfterViewInit {
     const code = state.doc.toString();
 
     try {
-      // Attempt to parse as a function to detect syntax errors
       new Function(code);
       this.syntaxErrorMessage = null;
     } catch (error: any) {

@@ -26,4 +26,12 @@
       <strong>Result:</strong> {{ simulationResult }}
     </div>
   </div>
+  <div #contextMenu class="context-menu">
+    <ul>
+      <li (click)="cutText()">Cut</li>
+      <li (click)="copyText()">Copy</li>
+      <li (click)="pasteText()">Paste</li>
+      <li (click)="deleteText()">Delete</li>
+    </ul>
+  </div>
 </div>
