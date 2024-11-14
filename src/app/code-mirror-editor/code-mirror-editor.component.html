@@ -2,6 +2,9 @@
   <app-expression-toolbar
     (insertText)="insertTextAtCursor($event)"
   ></app-expression-toolbar>
+  <app-property-dropdown
+    (propertySelected)="onPropertySelected($event)"
+  ></app-property-dropdown>
 
   <div #codeEditor class="editor-container"></div>
   <div *ngIf="syntaxErrorMessage" class="error-display">

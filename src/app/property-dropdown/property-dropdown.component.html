@@ -1,0 +1,20 @@
+<div class="property-dropdown">
+  <button class="dropdown-toggle" (click)="toggleDropdown()">
+    Add Property
+    <span class="arrow" [class.open]="isOpen">▼</span>
+  </button>
+
+  <div class="dropdown-menu" [class.show]="isOpen">
+    <div
+      class="property-item"
+      *ngFor="let property of properties"
+      (click)="selectProperty(property)"
+      draggable="true"
+      (dragstart)="onDragStart($event, property)"
+    >
+      <div class="property-name">{{ property.name }}</div>
+      <div class="property-type">{{ property.type }}</div>
+      <div class="property-value">{{ property.value }}</div>
+    </div>
+  </div>
+</div>

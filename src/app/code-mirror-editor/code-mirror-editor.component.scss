@@ -19,6 +19,20 @@
   border: 1px solid #ccc;
   border-radius: 4px;
   margin-bottom: 1rem;
+
+  ::ng-deep {
+    .property-block {
+      background: #e3f2fd;
+      padding: 2px 4px;
+      border-radius: 3px;
+      border: 1px solid #90caf9;
+      color: #1976d2;
+      cursor: move;
+      display: inline-block;
+      margin: 0 2px;
+      user-select: none;
+    }
+  }
 }
 
 .simulate-section {

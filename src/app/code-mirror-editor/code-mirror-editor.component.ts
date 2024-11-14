@@ -1,32 +1,154 @@
+import { isPlatformBrowser } from '@angular/common';
+import { CommonModule } from '@angular/common';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { ExpressionToolbarComponent } from '../expression-toolbar/expression-toolbar.component';
+import { linter, Diagnostic } from '@codemirror/lint';
+import {
+  PropertyDropdownComponent,
+  Property,
+} from '../property-dropdown/property-dropdown.component';
 import {
   Component,
   AfterViewInit,
   ViewChild,
   ElementRef,
+  OnDestroy,
   Inject,
   PLATFORM_ID,
   HostListener,
 } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
-import { EditorState, EditorSelection } from '@codemirror/state';
+import {
+  EditorState,
+  StateField,
+  StateEffect,
+  RangeSetBuilder,
+  Extension,
+  EditorSelection,
+} from '@codemirror/state';
 import { javascript } from '@codemirror/lang-javascript';
 import {
+  EditorView,
+  keymap,
+  ViewPlugin,
+  DecorationSet,
+  Decoration,
+  WidgetType,
+  MatchDecorator,
   lineNumbers,
   highlightActiveLineGutter,
   highlightSpecialChars,
   drawSelection,
   dropCursor,
-  EditorView,
-  keymap,
   KeyBinding,
 } from '@codemirror/view';
-import { defaultKeymap } from '@codemirror/commands';
-import { CommonModule } from '@angular/common';
-import { FormsModule, ReactiveFormsModule } from '@angular/forms';
-import { ExpressionToolbarComponent } from '../expression-toolbar/expression-toolbar.component';
-import { linter, Diagnostic } from '@codemirror/lint';
-import { bracketMatching } from '@codemirror/language';
+import {
+  defaultKeymap,
+  indentWithTab,
+  insertBlankLine,
+} from '@codemirror/commands';
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import {
+  syntaxHighlighting,
+  bracketMatching,
+  defaultHighlightStyle,
+} from '@codemirror/language';
+import { Subscription } from 'rxjs';
 
+class PropertyBlockWidget extends WidgetType {
+  constructor(readonly property: string) {
+    super();
+  }
+
+  override eq(other: PropertyBlockWidget) {
+    return other.property === this.property;
+  }
+
+  toDOM() {
+    const wrap = document.createElement('span');
+    wrap.className = 'cm-property-block';
+    wrap.textContent = this.property;
+    wrap.setAttribute('draggable', 'true');
+
+    // Add drag handlers
+    wrap.addEventListener('dragstart', (e) => {
+      e.stopPropagation();
+      if (e.dataTransfer) {
+        e.dataTransfer.setData('text/plain', this.property);
+        e.dataTransfer.effectAllowed = 'move';
+      }
+    });
+
+    return wrap;
+  }
+
+  override ignoreEvent(event: Event) {
+    return event.type !== 'dragstart' && event.type !== 'dragend';
+  }
+}
+
+const addPropertyBlock = StateEffect.define<{ from: number; to: number }>();
+
+const propertyBlockField = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none;
+  },
+  update(value, tr) {
+    value = value.map(tr.changes);
+    for (let e of tr.effects) {
+      if (e.is(addPropertyBlock)) {
+        value = value.update({
+          add: [
+            Decoration.replace({
+              widget: new PropertyBlockWidget(
+                tr.state.sliceDoc(e.value.from, e.value.to)
+              ),
+              block: false,
+            }).range(e.value.from, e.value.to),
+          ],
+        });
+      }
+    }
+    return value;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+const propertyMatcher = new MatchDecorator({
+  regexp: /\b(temperature|pressure|speed|status)\b/g,
+  decoration: (match) => {
+    return Decoration.replace({
+      widget: new PropertyBlockWidget(match[0]),
+    });
+  },
+});
+
+const propertyMatchPlugin = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = propertyMatcher.createDeco(view);
+    }
+    update(update: any) {
+      this.decorations = propertyMatcher.updateDeco(update, this.decorations);
+    }
+  },
+  {
+    decorations: (v) => v.decorations,
+  }
+);
+
+const propertyBlockStyle = EditorView.baseTheme({
+  '&.cm-focused .property-block': {
+    background: '#e3f2fd',
+    padding: '2px 4px',
+    borderRadius: '3px',
+    border: '1px solid #90caf9',
+    color: '#1976d2',
+    cursor: 'move',
+    display: 'inline-block',
+    margin: '0 2px',
+  },
+});
 const customKeymap: KeyBinding[] = [
   {
     key: 'Mod-c',
@@ -99,15 +221,17 @@ const customKeymap: KeyBinding[] = [
     FormsModule,
     ReactiveFormsModule,
     ExpressionToolbarComponent,
+    PropertyDropdownComponent,
   ],
   templateUrl: './code-mirror-editor.component.html',
   styleUrls: ['./code-mirror-editor.component.scss'],
 })
-export class CodeMirrorEditorComponent implements AfterViewInit {
+export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
   @ViewChild('codeEditor', { static: true })
   codeEditor!: ElementRef<HTMLDivElement>;
   @ViewChild('contextMenu')
   contextMenu!: ElementRef<HTMLDivElement>;
+  private subscriptions: Subscription[] = [];
 
   private editorInstance!: EditorView;
   private currentContextEvent: MouseEvent | null = null;
@@ -119,48 +243,64 @@ export class CodeMirrorEditorComponent implements AfterViewInit {
 
   constructor(@Inject(PLATFORM_ID) private platformId: Object) {}
 
+  availableProperties: Property[] = [];
   ngAfterViewInit() {
     if (isPlatformBrowser(this.platformId)) {
       const state = EditorState.create({
         doc: '',
         extensions: [
-          lineNumbers(),
-          highlightActiveLineGutter(),
-          highlightSpecialChars(),
-          drawSelection(),
-          dropCursor(),
+          //Basic editor setup
           EditorView.lineWrapping,
-          javascript(),
-          keymap.of([...defaultKeymap, ...customKeymap]),
+          syntaxHighlighting(defaultHighlightStyle),
           bracketMatching(),
-          linter((view) => this.syntaxValidator(view.state)),
+
+          //Auto-completion and bracket matching
+          closeBrackets(),
+          keymap.of([...defaultKeymap, ...closeBracketsKeymap, indentWithTab]),
+
+          //Property block handling
+          propertyBlockField,
+          propertyMatchPlugin,
+
+          //Drag and drop handling
           EditorView.domEventHandlers({
-            dragstart: (event, view) => {
-              const selection = view.state.selection.main;
-              if (!selection.empty) {
-                event.dataTransfer?.setData(
-                  'text/plain',
-                  view.state.sliceDoc(selection.from, selection.to)
-                );
-                view.dom.draggable = true;
-              }
-            },
-            drop: (event, view) => {
+            dragover: (event: DragEvent) => {
               event.preventDefault();
-              const dropText = event.dataTransfer?.getData('text/plain');
-              if (dropText) {
-                const { state } = view;
+              return false;
+            },
+            drop: (event: DragEvent, view: EditorView) => {
+              event.preventDefault();
+              const text = event.dataTransfer?.getData('text/plain');
+              if (text) {
                 const pos = view.posAtCoords({
                   x: event.clientX,
                   y: event.clientY,
                 });
-                if (pos != null) {
-                  const transaction = state.update({
-                    changes: { from: pos, to: pos, insert: dropText },
+                if (pos !== null) {
+                  const transaction = view.state.update({
+                    changes: { from: pos, to: pos, insert: text },
+                    effects: [
+                      addPropertyBlock.of({ from: pos, to: pos + text.length }),
+                    ],
                   });
                   view.dispatch(transaction);
                 }
               }
+              return false;
+            },
+          }),
+
+          EditorView.theme({
+            '.cm-property-block': {
+              background: '#e3f2fd',
+              padding: '2px 4px',
+              borderRadius: '3px',
+              border: '1px solid #90caf9',
+              color: '#1976d2',
+              cursor: 'move',
+              display: 'inline-block',
+              margin: '0 2px',
+              userSelect: 'none',
             },
           }),
         ],
@@ -170,13 +310,82 @@ export class CodeMirrorEditorComponent implements AfterViewInit {
         state,
         parent: this.codeEditor.nativeElement,
       });
-
-      this.editorInstance.dom.addEventListener(
-        'contextmenu',
-        this.onContextMenu.bind(this)
-      );
     }
   }
+
+  // ngAfterViewInit() {
+  //   if (isPlatformBrowser(this.platformId)) {
+  //     const state = EditorState.create({
+  //       doc: '',
+  //       extensions: [
+  //         lineNumbers(),
+  //         highlightActiveLineGutter(),
+  //         highlightSpecialChars(),
+  //         drawSelection(),
+  //         dropCursor(),
+  //         EditorView.lineWrapping,
+  //         javascript(),
+  //         keymap.of([...defaultKeymap, ...customKeymap]),
+  //         bracketMatching(),
+  //         linter((view) => this.syntaxValidator(view.state)),
+  //         propertyBlockStyle,
+  //         EditorView.domEventHandlers({
+  //           dragstart: (event: DragEvent, view: EditorView) => {
+  //             // Safely check if target is an HTMLElement and has the property-block class
+  //             const target = event.target as HTMLElement;
+  //             if (
+  //               target &&
+  //               target.classList &&
+  //               target.classList.contains('property-block')
+  //             ) {
+  //               if (event.dataTransfer) {
+  //                 event.dataTransfer.setData(
+  //                   'text/plain',
+  //                   target.textContent || ''
+  //                 );
+  //                 return true;
+  //               }
+  //             }
+  //             return false;
+  //           },
+  //           drop: (event: DragEvent, view: EditorView) => {
+  //             event.preventDefault();
+  //             const text = event.dataTransfer?.getData('text/plain');
+  //             if (text) {
+  //               const pos = view.posAtCoords({
+  //                 x: event.clientX,
+  //                 y: event.clientY,
+  //               });
+  //               if (pos !== null) {
+  //                 const transaction = view.state.update({
+  //                   changes: { from: pos, to: pos, insert: text },
+  //                 });
+  //                 view.dispatch(transaction);
+  //               }
+  //             }
+  //             return true;
+  //           },
+  //           dragover: (event: DragEvent) => {
+  //             event.preventDefault();
+  //             return false;
+  //           },
+  //         }),
+  //         propertyBlockField,
+  //         propertyBlockStyle,
+  //       ],
+  //     });
+
+  //     this.editorInstance = new EditorView({
+  //       state,
+  //       parent: this.codeEditor.nativeElement,
+  //     });
+
+  //     this.editorInstance.dom.addEventListener(
+  //       'contextmenu',
+  //       this.onContextMenu.bind(this)
+  //     );
+  //   }
+  // }
 
   @HostListener('document:click')
   closeContextMenu() {
@@ -277,43 +486,59 @@ export class CodeMirrorEditorComponent implements AfterViewInit {
     return diagnostics;
   };
 
+  onPropertySelected(property: Property) {
+    const propertyBlock = `${property.name}`;
+    this.insertTextAtCursor(propertyBlock);
+    this.availableProperties.push(property);
+    //Focus the editor after property selection
+    this.editorInstance?.focus();
+  }
+
   getEditorContent(): string {
     return this.editorInstance ? this.editorInstance.state.doc.toString() : '';
   }
 
   insertTextAtCursor(text: string) {
     if (this.editorInstance) {
+      //Add a space after the text if it doesn't end with a space
+      const textToInsert = text.endsWith(' ') ? text : text + ' ';
+
+      const currentPos = this.editorInstance.state.selection.main.head;
       const transaction = this.editorInstance.state.update({
         changes: {
-          from: this.editorInstance.state.selection.main.head,
-          insert: text,
+          from: currentPos,
+          insert: textToInsert,
         },
+        selection: EditorSelection.cursor(currentPos + textToInsert.length),
       });
+
       this.editorInstance.dispatch(transaction);
+      this.editorInstance.focus();
     }
   }
 
   simulateExpression() {
     const expression = this.getEditorContent();
-    let evaluatedExpression = expression;
-    for (const variable in this.simulationValues) {
-      const value = this.simulationValues[variable];
-      const regex = new RegExp(`\\b${variable}\\b`, 'g');
-      evaluatedExpression = evaluatedExpression.replace(
-        regex,
-        value.toString()
-      );
-    }
+
+    const context: { [key: string]: number } = {};
+    this.availableProperties.forEach((prop) => {
+      context[prop.name] = prop.value;
+    });
 
     try {
-      this.simulationResult = new Function(
-        `return (${evaluatedExpression});`
-      )();
-      this.syntaxErrorMessage = null; // Clear error message on successful evaluation
+      this.simulationResult = Function(
+        ...Object.keys(context),
+        `return (${expression});`
+      )(...Object.values(context));
+      this.syntaxErrorMessage = null;
     } catch (error: any) {
       console.error('Error evaluating expression:', error);
-      this.syntaxErrorMessage = `Evaluation Error: ${error.message}`; // Update error message on evaluation error
+      this.syntaxErrorMessage = `Evaluation Error: ${error.message}`;
       this.simulationResult = null;
     }
+  }
+
+  ngOnDestroy(): void {
+    this.subscriptions.forEach((subscription) => subscription.unsubscribe());
   }
 }
