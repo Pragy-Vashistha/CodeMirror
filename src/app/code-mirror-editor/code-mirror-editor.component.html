@@ -1,12 +1,20 @@
 <div class="expression-editor-container">
-  <app-expression-toolbar
-    (insertText)="insertTextAtCursor($event)"
-  ></app-expression-toolbar>
+  <div class="toolbar-container">
+    <app-expression-toolbar
+      (insertText)="insertTextAtCursor($event)"
+    ></app-expression-toolbar>
+    <button class="clear-button" (click)="clearEditor()">Clear</button>
+  </div>
   <app-property-dropdown
     (propertySelected)="onPropertySelected($event)"
   ></app-property-dropdown>
 
   <div #codeEditor class="editor-container"></div>
+  <div class="raw-expression">
+    <h3>Raw Expression:</h3>
+    <div class="expression-text">{{ getEditorContent() }}</div>
+  </div>
+
   <div *ngIf="syntaxErrorMessage" class="error-display">
     <p><strong>Error:</strong> {{ syntaxErrorMessage }}</p>
   </div>
