@@ -3,87 +3,151 @@
 .expression-editor-container {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 1rem;
-}
-
-.toolbar {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.editor-container {
-  width: 100%;
-  min-height: 300px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  margin-bottom: 1rem;
-
-  ::ng-deep {
-    .property-block {
-      background: #e3f2fd;
-      padding: 2px 4px;
-      border-radius: 3px;
-      border: 1px solid #90caf9;
-      color: #1976d2;
-      cursor: move;
-      display: inline-block;
-      margin: 0 2px;
-      user-select: none;
-    }
-  }
-}
-
-.simulate-section {
-  width: 100%;
-  margin-top: 1rem;
-}
-
-.simulate-inputs {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.simulate-result {
-  margin-top: 1rem;
-}
-
-.context-menu {
-  display: none;
-  position: fixed;
-  background: white;
-  border: 1px solid #ccc;
-  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
-  z-index: 1000;
-
-  ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-
-    li {
-      padding: 8px 12px;
-      cursor: pointer;
-
-      &:hover {
-        background-color: #f0f0f0;
-      }
-    }
-  }
+  align-items: stretch;
+  padding: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  gap: 1.5rem;
 }
 
 .toolbar-container {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  background-color: #f8f9fa;
+  padding: 1rem;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.editor-container {
+  width: 100%;
+  min-height: 300px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  background-color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+
+  ::ng-deep {
+    .property-block {
+      background: #e3f2fd;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid #90caf9;
+      color: #1976d2;
+      cursor: move;
+      display: inline-block;
+      margin: 0 4px;
+      user-select: none;
+      transition: all 0.2s ease;
+
+      &:hover {
+        background: #bbdefb;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+    }
+
+    .cm-expression-block {
+      background: #e8f5e9;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid #81c784;
+      color: #2e7d32;
+      transition: all 0.2s ease;
+      
+      &:hover {
+        background-color: #c8e6c9;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+    }
+  }
+}
+
+.raw-expression {
+  background-color: #f8f9fa;
+  padding: 1rem;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+
+  h3 {
+    margin: 0 0 0.5rem 0;
+    color: #495057;
+  }
+
+  .expression-text {
+    font-family: monospace;
+    padding: 0.5rem;
+    background: #fff;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+  }
+}
+
+.error-display {
+  background-color: #fff3f3;
+  border: 1px solid #ffcdd2;
+  border-radius: 6px;
+  padding: 1rem;
+  color: #d32f2f;
+}
+
+.simulate-section {
+  background-color: #f8f9fa;
+  padding: 1rem;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+
+  h3 {
+    margin: 0 0 1rem 0;
+    color: #495057;
+  }
+
+  button {
+    background-color: #2196f3;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+
+    &:hover {
+      background-color: #1976d2;
+    }
+  }
+}
+
+.simulate-inputs {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
   margin-bottom: 1rem;
+
+  label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    
+    input {
+      padding: 0.25rem 0.5rem;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      width: 100px;
+    }
+  }
+}
+
+.simulate-result {
+  margin-top: 1rem;
+  padding: 0.5rem;
+  background: #fff;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
 }
 
 .clear-button {
   padding: 0.5rem 1rem;
-  background-color: #f44336;
+  background-color: #dc3545;
   color: white;
   border: none;
   border-radius: 4px;
@@ -91,10 +155,39 @@
   transition: background-color 0.3s;
 
   &:hover {
-    background-color: #d32f2f;
+    background-color: #c82333;
   }
+}
 
-  &:active {
-    background-color: #c62828;
+.context-menu {
+  display: none;
+  position: fixed;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  min-width: 160px;
+
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0.5rem 0;
+
+    li {
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      transition: background-color 0.2s;
+
+      &:hover {
+        background-color: #f8f9fa;
+      }
+    }
+
+    .divider {
+      height: 1px;
+      background-color: #dee2e6;
+      margin: 0.5rem 0;
+    }
   }
 }

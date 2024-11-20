@@ -1,25 +1,41 @@
 <div class="expression-editor-container">
+  <!-- Top Toolbar Section -->
   <div class="toolbar-container">
     <app-expression-toolbar
       (insertText)="insertTextAtCursor($event)"
     ></app-expression-toolbar>
-    <button class="clear-button" (click)="clearEditor()">Clear</button>
+    <button class="clear-button" (click)="clearEditor()" title="Clear all content">
+      Clear
+    </button>
   </div>
+
+  <!-- Property Selection Dropdown -->
   <app-property-dropdown
     (propertySelected)="onPropertySelected($event)"
   ></app-property-dropdown>
 
-  <div #codeEditor class="editor-container"></div>
+  <!-- Main Editor Container -->
+  <div 
+    #codeEditor 
+    class="editor-container" 
+    (contextmenu)="onContextMenu($event)"
+    title="Right-click for more options"
+  ></div>
+
+  <!-- Raw Expression Display -->
   <div class="raw-expression">
     <h3>Raw Expression:</h3>
-    <div class="expression-text">{{ getEditorContent() }}</div>
+    <div class="expression-text" [attr.aria-label]="'Current expression content'">
+      {{ getEditorContent() }}
+    </div>
   </div>
 
-  <div *ngIf="syntaxErrorMessage" class="error-display">
+  <!-- Error Message Display -->
+  <div *ngIf="syntaxErrorMessage" class="error-display" role="alert">
     <p><strong>Error:</strong> {{ syntaxErrorMessage }}</p>
   </div>
 
-  <!-- Simulate Feature Section -->
+  <!-- Expression Simulation Section -->
   <div class="simulate-section">
     <h3>Simulate Expression</h3>
     <div class="simulate-inputs">
@@ -29,20 +45,26 @@
           type="number"
           [id]="variable"
           [(ngModel)]="simulationValues[variable]"
+          [attr.aria-label]="'Input value for ' + variable"
         />
       </label>
     </div>
     <button (click)="simulateExpression()">Simulate</button>
-    <div class="simulate-result">
+    <div class="simulate-result" role="status">
       <strong>Result:</strong> {{ simulationResult }}
     </div>
   </div>
-  <div #contextMenu class="context-menu">
+
+  <!-- Context Menu -->
+  <div #contextMenu class="context-menu" role="menu">
     <ul>
-      <li (click)="cutText()">Cut</li>
-      <li (click)="copyText()">Copy</li>
-      <li (click)="pasteText()">Paste</li>
-      <li (click)="deleteText()">Delete</li>
+      <li role="menuitem" (click)="cutText()">Cut</li>
+      <li role="menuitem" (click)="copyText()">Copy</li>
+      <li role="menuitem" (click)="pasteText()">Paste</li>
+      <li role="menuitem" (click)="deleteText()">Delete</li>
+      <li class="divider"></li>
+      <li role="menuitem" (click)="createExpressionBlock()">Create Expression Block</li>
+      <li role="menuitem" (click)="expandExpressionBlock()">Expand Block</li>
     </ul>
   </div>
 </div>

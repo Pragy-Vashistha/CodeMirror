@@ -1,6 +1,6 @@
 import { isPlatformBrowser } from '@angular/common';
 import { CommonModule } from '@angular/common';
-import { FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { FormsModule } from '@angular/forms';
 import { ExpressionToolbarComponent } from '../expression-toolbar/expression-toolbar.component';
 import { linter, Diagnostic } from '@codemirror/lint';
 import {
@@ -55,6 +55,9 @@ import {
 import { Subscription } from 'rxjs';
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 
+/**
+ * Widget for rendering property blocks in the editor
+ */
 class PropertyBlockWidget extends WidgetType {
   constructor(
     readonly property: string,
@@ -103,6 +106,103 @@ class PropertyBlockWidget extends WidgetType {
   }
 }
 
+/**
+ * Widget for rendering collapsible expression blocks
+ */
+class ExpressionBlockWidget extends WidgetType {
+  private view: EditorView | null = null;
+  private from: number;
+  private to: number;
+
+  constructor(
+    readonly expression: string,
+    readonly fromPos: number,
+    readonly toPos: number
+  ) {
+    super();
+    this.from = fromPos;
+    this.to = toPos;
+    this.expression = expression;
+  }
+
+  override eq(other: ExpressionBlockWidget) {
+    return (
+      other.expression === this.expression &&
+      other.from === this.from &&
+      other.to === this.to
+    );
+  }
+
+  toDOM(view: EditorView) {
+    this.view = view;
+    const wrap = document.createElement('span');
+    wrap.className = 'cm-expression-block';
+    wrap.textContent = this.expression;
+    wrap.setAttribute('data-expression', this.expression);
+    wrap.setAttribute('data-expression-block', 'true'); 
+    wrap.setAttribute('draggable', 'true');
+    
+    // Add double-click handler for expansion
+    wrap.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      this.expandBlock();
+    });
+
+    // Add drag handlers
+    wrap.addEventListener('dragstart', (e) => {
+      e.stopPropagation();
+      if (e.dataTransfer) {
+        e.dataTransfer.setData(
+          'application/x-editor-expression',
+          JSON.stringify({
+            expression: this.expression,
+            from: this.from,
+            to: this.to,
+            isExpression: true
+          })
+        );
+        e.dataTransfer.effectAllowed = 'move';
+      }
+    });
+
+    return wrap;
+  }
+
+  override ignoreEvent(event: Event) {
+    return event.type !== 'dblclick' && 
+           event.type !== 'dragstart' && 
+           event.type !== 'dragend';
+  }
+
+  /**
+   * Expands the expression block by removing the decoration and inserting raw text
+   */
+  expandBlock() {
+    if (this.view) {
+      const transaction = this.view.state.update({
+        changes: {
+          from: this.from,
+          to: this.to,
+          insert: this.expression // Insert raw expression without decoration
+        },
+        effects: [
+          removeExpressionBlock.of({
+            from: this.from,
+            to: this.to,
+          })
+        ]
+      });
+      this.view.dispatch(transaction);
+    }
+  }
+
+  // Add public getter
+  public getView(): EditorView | null {
+    return this.view;
+  }
+}
+
+
 // Enhanced addPropertyBlock effect with property data
 const addPropertyBlock = StateEffect.define<{
   from: number;
@@ -141,16 +241,28 @@ const propertyBlockField = StateField.define<DecorationSet>({
 
 const propertyMatcher = new MatchDecorator({
   regexp: /\b(temperature|pressure|speed|status)\b/g,
-  decoration: (match) => {
-    return Decoration.replace({
-      widget: new PropertyBlockWidget(
-        match[0],
-        match.index,
-        match.index + match[0].length
-      ),
-    });
+  decoration: (match, view, pos) => {
+    let found = false;
+    view.state.field(expressionBlockField).between(
+      pos, 
+      pos, 
+      () => { found = true; }
+    );
+    
+    // Only create property block if not within expression block
+    if (!found) {
+      return Decoration.replace({
+        widget: new PropertyBlockWidget(
+          match[0],
+          match.index,
+          match.index + match[0].length
+        ),
+      });
+    }
+    return null;
   },
 });
+
 
 const propertyMatchPlugin = ViewPlugin.fromClass(
   class {
@@ -180,6 +292,65 @@ const propertyBlockStyle = EditorView.baseTheme({
   },
 });
 
+// Add a new state effect for expression blocks
+const addExpressionBlock = StateEffect.define<{
+  from: number;
+  to: number;
+  expression: string;
+}>();
+
+// Create a state field for expression blocks
+const expressionBlockField = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none;
+  },
+  update(value, tr) {
+    let updated = value.map(tr.changes);
+
+    for (let e of tr.effects) {
+      if (e.is(addExpressionBlock)) {
+        const { from, to, expression } = e.value;
+        if (from <= tr.newDoc.length && to <= tr.newDoc.length) {
+          updated = updated.update({
+            add: [
+              Decoration.replace({
+                widget: new ExpressionBlockWidget(expression, from, to),
+                block: false,
+              }).range(from, to),
+            ],
+          });
+        }
+      } else if (e.is(removeExpressionBlock)) {
+        const { from, to } = e.value;
+        updated = updated.update({
+          filter: (fromDeco, toDeco, deco) => {
+            return fromDeco < from || toDeco > to;
+          },
+        });
+      }
+    }
+    return updated;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+
+// Add styling for expression blocks
+const expressionBlockStyle = EditorView.baseTheme({
+  '.cm-expression-block': {
+    background: '#e8f5e9',
+    padding: '2px 8px',
+    borderRadius: '4px',
+    border: '1px solid #81c784',
+    color: '#2e7d32',
+    cursor: 'pointer',
+    display: 'inline-block',
+    margin: '0 2px',
+    fontWeight: 'bold',
+  },
+});
+
+// Add proper typing for the customKeymap
 const customKeymap: KeyBinding[] = [
   {
     key: 'Mod-c',
@@ -245,13 +416,16 @@ const customKeymap: KeyBinding[] = [
   // Additional keybindings can be added here
 ];
 
+const removeExpressionBlock = StateEffect.define<{ from: number; to: number }>();
+
+
+
 @Component({
   selector: 'app-code-mirror-editor',
   standalone: true,
   imports: [
     CommonModule,
     FormsModule,
-    ReactiveFormsModule,
     ExpressionToolbarComponent,
     PropertyDropdownComponent,
   ],
@@ -259,25 +433,61 @@ const customKeymap: KeyBinding[] = [
   styleUrls: ['./code-mirror-editor.component.scss'],
 })
 export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
-  @ViewChild('codeEditor', { static: true })
-  codeEditor!: ElementRef<HTMLDivElement>;
-  @ViewChild('contextMenu')
-  contextMenu!: ElementRef<HTMLDivElement>;
-  private subscriptions: Subscription[] = [];
-
+  // Add proper typing for class properties
   private editorInstance!: EditorView;
   private currentContextEvent: MouseEvent | null = null;
+  private readonly subscriptions: Subscription[] = [];
 
   variables: string[] = [];
-  simulationValues: { [key: string]: number } = {};
+  simulationValues: Record<string, number> = {};
   simulationResult: number | null = null;
   syntaxErrorMessage: string | null = null;
-
-  constructor(@Inject(PLATFORM_ID) private platformId: Object) {}
-
   availableProperties: Property[] = [];
 
-  ngAfterViewInit() {
+  @ViewChild('codeEditor', { static: true }) private readonly codeEditor!: ElementRef<HTMLDivElement>;
+  @ViewChild('contextMenu') private readonly contextMenu!: ElementRef<HTMLDivElement>;
+
+  constructor(@Inject(PLATFORM_ID) private readonly platformId: Object) {}
+
+  /**
+   * Creates a collapsible expression block from selected text
+   */
+  createExpressionBlock(): void {
+    if (this.editorInstance) {
+      const { state } = this.editorInstance;
+      const selection = state.selection.main;
+      
+      if (!selection.empty) {
+        const selectedText = state.sliceDoc(selection.from, selection.to);
+        
+        try {
+          // Test if it's a valid expression
+          new Function(`return (${selectedText});`);
+          
+          const transaction = state.update({
+            changes: { from: selection.from, to: selection.to, insert: selectedText }, // Keep the text
+            effects: [
+              addExpressionBlock.of({
+                from: selection.from,
+                to: selection.from + selectedText.length, // Use the new position
+                expression: selectedText,
+              }),
+            ],
+          });
+          
+          this.editorInstance.dispatch(transaction);
+        } catch (error) {
+          this.syntaxErrorMessage = "Cannot create block: Invalid expression";
+        }
+      }
+    }
+    this.closeContextMenu();
+  }
+
+  /**
+   * Initializes the CodeMirror editor with all necessary extensions
+   */
+  ngAfterViewInit(): void {
     if (isPlatformBrowser(this.platformId)) {
       const state = EditorState.create({
         doc: '',
@@ -305,6 +515,10 @@ export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
           // Auto-completion and bracket matching
           closeBrackets(),
 
+          // Expression block handling
+          expressionBlockField,
+          expressionBlockStyle,
+
           // Property block handling
           propertyBlockField,
           propertyMatchPlugin,
@@ -316,47 +530,68 @@ export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
           EditorView.domEventHandlers({
             dragover: (event: DragEvent) => {
               event.preventDefault();
-              // Set dropEffect based on whether it's a move or copy
-              if (
-                event.dataTransfer?.types.includes(
-                  'application/x-editor-property'
-                )
-              ) {
-                event.dataTransfer.dropEffect = 'move';
-              } else if (event.dataTransfer) {
-                event.dataTransfer.dropEffect = 'copy';
+              if (event.dataTransfer) {
+                const hasProperty = event.dataTransfer.types.includes('application/x-editor-property');
+                const hasExpression = event.dataTransfer.types.includes('application/x-editor-expression');
+                event.dataTransfer.dropEffect = (hasProperty || hasExpression) ? 'move' : 'copy';
               }
               return false;
             },
             drop: (event: DragEvent, view: EditorView) => {
               event.preventDefault();
-              const internalData = event.dataTransfer?.getData(
-                'application/x-editor-property'
-              );
+              const propertyData = event.dataTransfer?.getData('application/x-editor-property');
+              const expressionData = event.dataTransfer?.getData('application/x-editor-expression');
               const externalText = event.dataTransfer?.getData('text/plain');
+              
               const pos = view.posAtCoords({
                 x: event.clientX,
                 y: event.clientY,
               });
-
+            
               if (pos === null) return false;
-
-              // Check surrounding characters for spaces
+            
               const doc = view.state.doc;
-              const needSpaceBefore =
-                pos > 0 && doc.sliceString(pos - 1, pos) !== ' ';
-              const needSpaceAfter =
-                pos < doc.length && doc.sliceString(pos, pos + 1) !== ' ';
-
-              if (internalData) {
+              const needSpaceBefore = pos > 0 && doc.sliceString(pos - 1, pos) !== ' ';
+              const needSpaceAfter = pos < doc.length && doc.sliceString(pos, pos + 1) !== ' ';
+            
+              if (expressionData) {
                 try {
-                  const { property, from, to } = JSON.parse(internalData);
+                  const { expression, from, to } = JSON.parse(expressionData);
                   if (pos >= from && pos <= to) return false;
-
+            
+                  const spaceBefore = needSpaceBefore ? ' ' : '';
+                  const spaceAfter = needSpaceAfter ? ' ' : '';
+            
+                  // Insert the expression with spaces if needed
+                  const insertFrom = pos + spaceBefore.length;
+                  const insertTo = insertFrom + expression.length;
+            
+                  const transaction = view.state.update({
+                    changes: [
+                      { from, to, insert: '' }, // Remove original
+                      { from: pos, insert: spaceBefore + expression + spaceAfter }
+                    ],
+                    effects: [
+                      addExpressionBlock.of({
+                        from: insertFrom,
+                        to: insertTo,
+                        expression
+                      })
+                    ]
+                  });
+                  view.dispatch(transaction);
+                } catch (error) {
+                  console.error('Error parsing expression drag data:', error);
+                }
+              } else if (propertyData) {
+                try {
+                  const { property, from, to } = JSON.parse(propertyData);
+                  if (pos >= from && pos <= to) return false;
+            
                   const spaceBefore = needSpaceBefore ? ' ' : '';
                   const spaceAfter = needSpaceAfter ? ' ' : '';
                   const textToInsert = `${spaceBefore}${property}${spaceAfter}`;
-
+            
                   const transaction = view.state.update({
                     changes: [
                       { from, to, insert: '' }, // Remove original
@@ -372,13 +607,13 @@ export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
                   });
                   view.dispatch(transaction);
                 } catch (error) {
-                  console.error('Error parsing internal drag data:', error);
+                  console.error('Error parsing property drag data:', error);
                 }
               } else if (externalText) {
                 const spaceBefore = needSpaceBefore ? ' ' : '';
                 const spaceAfter = needSpaceAfter ? ' ' : '';
                 const textToInsert = `${spaceBefore}${externalText}${spaceAfter}`;
-
+            
                 const transaction = view.state.update({
                   changes: { from: pos, insert: textToInsert },
                   effects: [
@@ -391,9 +626,10 @@ export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
                 });
                 view.dispatch(transaction);
               }
-
+            
               return false;
             },
+            
           }),
 
           // Styling for property blocks
@@ -488,7 +724,10 @@ export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
     this.closeContextMenu();
   }
 
-  syntaxValidator = (view: EditorView): Diagnostic[] => {
+  /**
+   * Validates syntax and returns diagnostics for the linter
+   */
+  private syntaxValidator = (view: EditorView): Diagnostic[] => {
     const diagnostics: Diagnostic[] = [];
     const code = view.state.doc.toString();
 
@@ -518,7 +757,10 @@ export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
     return diagnostics;
   };
 
-  onPropertySelected(property: Property) {
+  /**
+   * Handles property selection from dropdown
+   */
+  onPropertySelected(property: Property): void {
     const propertyBlock = `${property.name}`;
     this.insertTextAtCursor(propertyBlock);
 
@@ -531,11 +773,17 @@ export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
     this.editorInstance?.focus();
   }
 
+  /**
+   * Returns current editor content
+   */
   getEditorContent(): string {
     return this.editorInstance ? this.editorInstance.state.doc.toString() : '';
   }
 
-  insertTextAtCursor(text: string) {
+  /**
+   * Inserts text at current cursor position
+   */
+  insertTextAtCursor(text: string): void {
     if (this.editorInstance) {
       const currentPos = this.editorInstance.state.selection.main.head;
 
@@ -561,8 +809,23 @@ export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  /**
+   * Cleans up subscriptions on component destruction
+   */
+  ngOnDestroy(): void {
+    this.subscriptions.forEach(sub => sub.unsubscribe());
+    this.editorInstance?.destroy();
+  }
+
+  /**
+   * Simulates the expression in the editor
+   */
   simulateExpression() {
-    const expression = this.getEditorContent();
+    let expression = this.getEditorContent();
+    
+    // Replace all expression blocks with their actual expressions
+    const blockRegex = /\[(.*?)\]/g;
+    expression = expression.replace(blockRegex, (_, expr) => expr);
 
     const context: { [key: string]: number } = {};
     this.availableProperties.forEach((prop) => {
@@ -582,6 +845,27 @@ export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  expandExpressionBlock(): void {
+    if (this.editorInstance && this.currentContextEvent) {
+      const pos = this.editorInstance.posAtCoords({
+        x: this.currentContextEvent.clientX,
+        y: this.currentContextEvent.clientY,
+      });
+  
+      if (pos !== null) {
+        // Find expression block at position
+        this.editorInstance.state.field(expressionBlockField).between(pos, pos, (from, to, value) => {
+          const widget = value.spec.widget as ExpressionBlockWidget;
+          if (widget && widget.expandBlock) {
+            widget.expandBlock();
+          }
+        });
+      }
+    }
+    this.closeContextMenu();
+  }
+  
+
   clearEditor() {
     if (this.editorInstance) {
       const transaction = this.editorInstance.state.update({
@@ -600,7 +884,5 @@ export class CodeMirrorEditorComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  ngOnDestroy(): void {
-    this.subscriptions.forEach((subscription) => subscription.unsubscribe());
-  }
+  
 }
