@@ -1,0 +1,62 @@
+<div class="advanced-editor-container">
+  <h2>Advanced Editor with Property Blocks</h2>
+  
+  <div class="editor-toolbar">
+    <app-property-dropdown 
+      (propertySelected)="onPropertySelected($event)"
+      (propertyDragged)="onPropertyDragged($event)">
+    </app-property-dropdown>
+    
+    <app-expression-toolbar
+      (insertText)="onInsertText($event)">
+    </app-expression-toolbar>
+    
+    <button class="clear-button" (click)="clearEditor()">Clear Editor</button>
+  </div>
+  
+  <div class="main-content-grid">
+    <div class="editor-section">
+      <h3>Editor</h3>
+      <div #editorWrapper class="editor-wrapper" style="height: 600px;">
+        <!-- Our custom editor will be inserted here by JavaScript -->
+        <div *ngIf="!isBrowser" class="ssr-placeholder">
+          Editor is loading...
+        </div>
+      </div>
+    </div>
+    
+    <div class="editor-info">
+      <h3>Editor Information</h3>
+      
+      <div class="info-grid">
+        <div class="info-item">
+          <strong>Property Blocks:</strong> 
+          <span class="property-count">{{ editorContent.propertyBlocks.length }}</span>
+        </div>
+        
+        <div class="info-item">
+          <strong>Characters:</strong> 
+          <span>{{ editorState.characterCount }}</span>
+        </div>
+        
+        <div class="info-item">
+          <strong>Words:</strong> 
+          <span>{{ editorState.wordCount }}</span>
+        </div>
+      
+      <div class="editor-content-preview">
+        <h4>Current Content:</h4>
+        <div class="content-preview">
+          <p *ngIf="editorContent.text">{{ editorContent.text }}</p>
+          <p *ngIf="!editorContent.text" class="empty-message">No content yet</p>
+        </div>
+      </div>
+      
+      <div class="selection-info" *ngIf="editorState.selectedText">
+        <h4>Selected Text:</h4>
+        <div class="selected-text">{{ editorState.selectedText }}</div>
+      </div>
+      
+    </div>
+  </div>
+</div>

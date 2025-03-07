@@ -1,1 +1,10 @@
-<app-code-mirror-editor></app-code-mirror-editor>
+<div class="app-container">
+  <nav class="app-nav">
+    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}">CodeMirror Editor</a>
+    <a routerLink="/advanced-editor" routerLinkActive="active">Advanced Editor</a>
+  </nav>
+  
+  <div class="content">
+    <router-outlet></router-outlet>
+  </div>
+</div>
